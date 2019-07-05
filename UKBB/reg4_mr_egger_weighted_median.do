@@ -1,18 +1,13 @@
 //Neil Davies 01/04/19
 //This runs the MR-Egger, weighted median and mode estimators for the cross sample results:
 
-use "workingdata/ukbb_out_highbloodpressure2",clear
-foreach i in eduyears2 out_bmi out_diabetes out_height{
-	joinby SNP using  "workingdata/ukbb_`i'"
-	}
-keep SNP UKBB_EAF UKBB_effect_allele UKBB_other_allele sample_size ukbb_*
-compress
-save "workingdata/ukbb_results",replace	
+
+use "workingdata/ukbb_results",clear
 
 joinby SNP using "workingdata/hunt_results",unmatched(master) _merge(SSS)
 
 //Harmonize to the UKBB effect alleles
-forvalues i=1(1)464{
+forvalues i=1(1)455{
 	local ukbb_effect_allele=UKBB_effect_allele[`i']
 	local ukbb_other_allele=UKBB_other_allele[`i']
 	local hunt_effect_allele=HUNT_effect_allele[`i']

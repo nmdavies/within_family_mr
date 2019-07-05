@@ -1,7 +1,7 @@
 //Neil Davies 19/11/18
 //This cleans the sibling data from the KINSHIP data provided by UKBB
 
-import delimited $path2/rawdata/ukbb_sibs.csv,clear
+import delimited using "$path3/rawdata/ukbb_sibs.csv",clear
 
 
 local f0 = "red"

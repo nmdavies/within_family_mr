@@ -5,26 +5,27 @@
 //Run the four regressions (standard OLS, standard MR with allele score on full sample, standard MR on one of the siblings
 // and within family MR.
 
-use "workingdata/analysisdata" , clear
-
-replace famid =_n+22658 if famid ==.
 
 cap prog drop regressions
 prog def regressions
 args outcome exposure instrument
 preserve
 if "`outcome'"!="`exposure'"{
-	reg `outcome' `exposure' pc1-pc20 cov_age cov_male if n_sibs>1 & n_sibs<8 & n_sibs!=. & (within==1|within==.),ro 
+
+	reg `outcome' `exposure' pc1-pc20 cov_age cov_male if n_sibs>1 & n_sibs<8 & n_sibs!=. ,ro cluster(famid)
 	regsave `exposure' using "results/`outcome'_`exposure'",detail(all) pval replace
 
-	ivreg2 `outcome' (`exposure'=`instrument') pc1-pc20  cov_age cov_male if (within==1|within==.),ro cluster(famid)
+	xtreg `outcome' `exposure' pc1-pc20 cov_age cov_male if n_sibs>1 & n_sibs<8 & n_sibs!=.,ro cluster(famid) fe i(famid)
+	regsave `exposure' using "results/`outcome'_`exposure'",detail(all) pval append
+	
+	ivreg2 `outcome' (`exposure'=`instrument') pc1-pc20  cov_age cov_male if n_sibs==1| n_sibs>8,ro cluster(famid)
 	regsave `exposure' using "results/`outcome'_`exposure'",detail(all) pval append
 	
 	keep if `outcome'!=.
 	bys famid:gen n_sibs2=_N
 	drop if  n_sibs2==1	
 			
-	ivreg2 `outcome' (`exposure'=`instrument') pc1-pc20  cov_age cov_male if n_sibs>1 & n_sibs<8 &within==1,ro  cluster(famid)
+	ivreg2 `outcome' (`exposure'=`instrument') pc1-pc20  cov_age cov_male if n_sibs>1 & n_sibs<8 ,ro  cluster(famid)
 	regsave `exposure' using "results/`outcome'_`exposure'",detail(all) pval append
 
 	xtivreg `outcome' (`exposure'=`instrument') pc1-pc20  cov_age cov_male if n_sibs>1 & n_sibs<8 ,i(famid) fe  vce(cluster famid )
@@ -34,37 +35,8 @@ else{
 }
 end
 
-//Basic plot of the results
-cap prog drop regressions_plot
-prog def  regressions_plot
-args outcome exposure instrument	
-	
-use "results/`outcome'_`exposure'",clear	
 
-gen n=5-_n
-sort n
-
-//Plot results using coefplot
-//Genetic scores
-mkmat coef stderr ,matrix(results) rownames(n)
-matrix results_iv=results'
-
-#delimit ;
-
-coefplot (matrix(results_iv) , se(2) ms(C) msize(vsmall) mc(edkblue) ciopts(lc(edkblue) lwidth(vthin))), 
-		graphregion(color(white))  plotregion(lc(white)) grid(none) xline(0) ylabel(,labsize(vsmall)) 
-		xlabel(,labsize(vsmall)) xtitle("`caption' on `j' (95%CI)",size(vsmall))
-		xlabel(,noticks)  xtick(none) ytick(none) title("Outcome=`outcome', exposure=`exposure'")
-		coeflabels(1="Ordinary least squares (OLS)"
-	2="Mendelian randomization no FE - full sample"
-	3="Mendelian randomization 1 sib from siblings sample no FE"
-	4="Mendelian randomization siblings FE"
-	, wrap(40));	
-	#delimit cr	
-graph export "results/`outcome'_`exposure'.eps", as(pdf) replace fontface("Calibri")
-end
-
-//Open data
+//1. Open data and run the IPD analysis in UKBB
 
 use "workingdata/analysisdata", clear
 
@@ -72,24 +44,68 @@ use "workingdata/analysisdata", clear
 replace famid =_n+22658 if famid ==.
 
 //Run regressions across all the exposures and outcomes
-ds /*eduyears3*/ out_highbloodpressure2 /*out_diabetes*/
+ds eduyears3 out_highbloodpressure2 out_diabetes
 foreach i in `r(varlist)'{
-	//regressions `i' eduyears3 allele_score_ea
-	regressions `i' out_bmi locke_79_wprs
-	//regressions `i' out_height wood_387_wprs
+	regressions `i' out_bmi locke_69_wprs
+	regressions `i' out_height wood_386_wprs
 	}
 
-//Plot the results using a basic plot
-//#delimit ;
-//foreach i in 
-//out_bmi            out_highbloodpressure out_height     out_diabetes eduyears2{;
-//	regressions_plot `i' eduyears2;
-//	regressions_plot `i' out_bmi;
-//	regressions_plot `i' out_height;
-//	};
+//2. Clean results and meta-analyse across UKBB and HUNT
+//Clean the HUNT non-family results
+//The OLS results not allowing for a family FE
+/*
+The following files were sent by Ben from the analysis on HUNT data
+#OLS
+lm()
+r_non_within_ols_v7
 
-//Plot the results in a single plot
+#OLS family FE
+plm()
+r_within_ols_v7.txt
 
+#Standard MR (non-sibs)
+ivreg()
+r_non_within_v8.txt
+
+#Standard MR (sibs)
+ivreg()
+r_non_within_v7.txt
+
+# MR within families
+plm()
+r_within_v7.txt
+*/
+//Clean each of the files and create a single results file.
+foreach i in r_non_within_ols_v7 r_within_ols_v7 r_non_within_v8 r_non_within_sibs_v7  r_within_v7{
+	import delimited results/`i'.txt, delimiter(space) clear 
+	drop in 1
+	ds *
+	cap: rename v1 exposure 
+	cap: rename v2 outcome
+	cap: rename v3 N 
+	cap: rename v4 coef
+	cap: rename v5 stderr
+	cap: drop v6
+	
+	cap: rename n N 
+	cap: rename beta coef
+	cap: rename se stderr
+	cap: drop pvalue
+	
+	local type=`type'+1
+	gen type=`type'
+	gen study=2
+	save "workingdata/hunt_`i'",replace
+	count
+	}
+	
+foreach i in r_non_within_ols_v7 r_within_ols_v7 r_non_within_v8 r_non_within_sibs_v7 {
+	append using "workingdata/hunt_`i'",
+	}
+compress
+save "workingdata/hunt_ipd",replace
+	
+//Clean UK Biobank results so that they're in the same format as the HUNT results.
 #delimit ;
 use "results/out_bmi_eduyears3.dta",clear;
 foreach i in 
@@ -107,12 +123,12 @@ duplicates drop
 drop if exposure==outcome
 
 gen type=1 if cmd=="regress"
-replace type=2 if cmd=="ivreg2" & N>40000
-replace type=3 if cmd=="ivreg2" & N<40000
-replace type=4 if cmd=="xtivreg"
+replace type=2 if cmd=="xtreg"
+replace type=3 if cmd=="ivreg2" & N>40000
+replace type=4 if cmd=="ivreg2" & N<40000
+replace type=5 if cmd=="xtivreg"
 
-
-sort exposure outcome type
+sort  outcome exposure type
 
 //Add index for outcome
 levels outcome
@@ -130,128 +146,116 @@ foreach i in eduyears3 out_sys_bp out_dia_bp out_height out_bmi out_dia_bp cov_n
 	replace cont=1 if outcome=="`i'"
 	}
 drop if (outcome=="out_height" & exposure=="out_bmi")|(exposure=="out_height" & outcome=="out_bmi")|(exposure=="out_height" & outcome=="out_highbloodpressure2")|(exposure=="out_height" & outcome=="out_diabetes")
-
+drop if exposure=="eduyears3"
 //Generate index per analysis:
 gen index=.
-replace index=round((_n+1.9)/4)
+replace index=round((_n+1.9)/5)
 order index
-drop if exposure=="eduyears3"
-append using "workingdata/metan"
-replace cont=1 if cont==. & outcome=="eduyears3"
-replace cont=0 if cont==. 
 
-replace index=6 if index==7 & N==.
-replace index=7 if index==8 & N==.
-sort index outcome exposure type
+keep index outcome exposure type coef stderr pval N N_g cmd cmdline cont
 
-/*
-mkmat coef stderr if type==1 & cont==1 ,matrix(results) rownames(index)
-matrix results_ols=results'
-mkmat coef stderr if type==2 & cont==1  ,matrix(results) rownames(index)
-matrix results_mr_full_sample=results'
-mkmat coef stderr if type==3 & cont==1 ,matrix(results) rownames(index)
-matrix results_mr_sibsample=results'
-mkmat coef stderr if type==4 & cont==1 ,matrix(results) rownames(index)
-matrix results_within_mr=results'
-mkmat coef stderr if type==5 & cont==1 ,matrix(results) rownames(index)
-matrix results_within_sum_same_mr=results'
-mkmat coef stderr if type==6 & cont==1 ,matrix(results) rownames(index)
-matrix results_within_cross_mr=results'
-*/
+save "workingdata/ukbb_ipd_results",replace
+
+append using "workingdata/hunt_ipd"
+replace study=1 if study==.
+
+drop if outcome=="out_diabetes" & exposure=="out_height"
+drop if outcome=="out_highbloodpressure" & exposure=="out_height"
+
+//Meta-analyse the 5 IPD analyses:
+//Setup results variables
+gen m_index=.
+gen m_outcome=""
+gen m_exposure=""
+gen m_study_outcome=""
+gen m_study_exposure=""
+gen m_type=. 
+gen m_outcome_index=.
+gen m_coef=.
+gen m_stderr=.
+gen m_pval=.
+gen m_N=.
+gen m_het_chi=.
+gen m_het_pvalue=.
+
+cap prog drop save_results
+prog def save_results
+args index exposure outcome study_outcome study_exposure type outcome_index coef stderr pval row het_chi het_pvalue
+replace m_index=`index' in `row'
+replace m_outcome="`outcome'" in `row'
+replace m_exposure="`exposure'" in `row'
+replace m_study_outcome="`study_outcome'" in `row'
+replace m_study_exposure="`study_exposure'" in `row'
+replace m_type=`type' in `row'
+replace m_outcome_index=`outcome_index' in `row'
+replace m_coef=`coef' in `row'
+replace m_stderr=`stderr' in `row'
+replace m_pval=`pval' in `row'
+replace m_het_chi=`het_chi' in `row'
+replace m_het_pvalue=`het_pvalue' in `row'
+end
+
+//Generate the counts for each analysis
+replace outcome="eduyears3" if outcome=="eduyears2"
+replace outcome="out_highbloodpressure2" if outcome=="out_highbloodpressure"
+bys outcome exposure type: egen total_n=sum(N)
+
+//BMI on education
+forvalues i=1(1)5{
+	local j=`j'+1
+	di "`j'"
+	metan coef stderr if substr(outcome,1,8)=="eduyears" & exposure=="out_bmi" & type==`i'
+	save_results 8 out_bmi eduyears same same `i' 1 r(ES) r(seES) r(p_z) `j' r(het) r(p_het)
+	tabstat total_n if substr(outcome,1,8)=="eduyears" & exposure=="out_bmi" & type==`i',save
+	replace m_N=el(r(StatTotal),1,1) in `j'
+	}
+
+//Height on education
+forvalues i=1(1)5{
+	local j=`j'+1
+	di "`j'"
+	metan coef stderr if substr(outcome,1,8)=="eduyears" & exposure=="out_height" & type==`i'
+	save_results 8 out_height eduyears same same `i' 1 r(ES) r(seES) r(p_z) `j' r(het) r(p_het)
+	tabstat total_n if substr(outcome,1,8)=="eduyears" & exposure=="out_height" & type==`i',save
+	replace m_N=el(r(StatTotal),1,1) in `j'
+	}
+	
+//BMI on high blood pressure
+forvalues i=1(1)5{
+	local j=`j'+1
+	di "`j'"
+	metan coef stderr if substr(outcome,1,8)=="out_diab" & exposure=="out_bmi" & type==`i'
+	save_results 8 out_bmi out_diabetes  same same `i' 1 r(ES) r(seES) r(p_z) `j' r(het) r(p_het)
+	tabstat total_n if substr(outcome,1,8)=="out_diab" & exposure=="out_bmi" & type==`i',save
+	replace m_N=el(r(StatTotal),1,1) in `j'
+	}
+
+//BMI on diabetes
+forvalues i=1(1)5{
+	local j=`j'+1
+	di "`j'"
+	metan coef stderr if substr(outcome,1,8)=="out_high" & exposure=="out_bmi" & type==`i'
+	save_results 8 out_bmi out_highbloodpressure2  same same `i' 1 r(ES) r(seES) r(p_z) `j' r(het) r(p_het)
+	tabstat total_n if substr(outcome,1,8)=="out_high" & exposure=="out_bmi" & type==`i',save
+	replace m_N=el(r(StatTotal),1,1) in `j'
+	}
+keep m_*
+drop if m_type==.
+compress
+
+rename m_* *
+save "workingdata/meta_analysed_ipd",replace
+
+//Clean results for inclusion in text
+
+//gen confidence intervals
+gen beta=coef
+format %9.2f beta 
+replace beta=beta*100 if outcome=="out_diabetes"|outcome=="out_highbloodpressure2"
+gen lci=beta-1.96*stderr if !(outcome=="out_diabetes"|outcome=="out_highbloodpressure2")
+gen uci=beta+1.96*stderr if !(outcome=="out_diabetes"|outcome=="out_highbloodpressure2")
+replace lci=beta-1.96*stderr*100 if outcome=="out_diabetes"|outcome=="out_highbloodpressure2"
+replace uci=beta+1.96*stderr*100 if outcome=="out_diabetes"|outcome=="out_highbloodpressure2"
 gen double pval2=pval
 replace  pval2=2*normal(-abs(coef/stderr)) 
-/*
-#delimit ;
-
-coefplot 	(matrix(results_ols) , se(2) ms(C) msize(vtiny) mc(edkblue) ciopts(lc(edkblue) lwidth(vthin)) offset(0.15))
-			(matrix(results_mr_full_sample) , se(2) ms(S) msize(vtiny) mc(eltblue) ciopts(lc(eltblue) lwidth(vthin)) offset(0.05))
-			(matrix(results_mr_sibsample) , se(2) ms(T) msize(vtiny) mc(rose) ciopts(lc(rose) lwidth(vthin)) offset(-0.05))
-			(matrix(results_within_mr) , se(2) ms(D) msize(vtiny) mc(emerald) ciopts(lc(emerald) lwidth(vthin)) offset(-0.15))
-			(matrix(results_within_sum_same_mr) , se(2) ms(D) msize(vtiny) mc(grey) ciopts(lc(grey) lwidth(vthin)) offset(-0.25))
-			(matrix(results_within_cross_mr) , se(2) ms(D) msize(vtiny) mc(red) ciopts(lc(red) lwidth(vthin)) offset(-0.35))
-		, 
-		graphregion(color(white))  plotregion(lc(white)) grid(none) xline(0) ylabel(,labsize(vsmall)) 
-		/* yscale(alt axis(2))*/		
-		xlabel(,labsize(vsmall)) xtitle("Mean difference in outcome (95%CI)",size(vsmall))
-		xlabel(,noticks)  xtick(none) ytick(none)
-		coeflabels(5="BMI on education"
-	4="Height on education"
-	
-	, wrap(40))
-	/*
-	groups(	4 = "N = 18"                                           
-            5 = "N = 11"                                           
-			, nogap angle(horizontal) labsize(vsmall))*/
-	legend(off)
-	;	
-#delimit cr	
-graph save  "results/all_cont_outcome",replace
-graph export "results/all_cont_outcome.eps", as(pdf) replace fontface("Calibri")
-
-mkmat coef stderr if type==1 & cont==0 ,matrix(results) rownames(index)
-matrix results_ols=results'
-mkmat coef stderr if type==2 & cont==0  ,matrix(results) rownames(index)
-matrix results_mr_full_sample=results'
-mkmat coef stderr if type==3 & cont==0 ,matrix(results) rownames(index)
-matrix results_mr_sibsample=results'
-mkmat coef stderr if type==4 & cont==0 ,matrix(results) rownames(index)
-matrix results_within_mr=results'
-mkmat coef stderr if type==5 & cont==0 ,matrix(results) rownames(index)
-matrix results_within_sum_same_mr=results'
-mkmat coef stderr if type==6 & cont==0 ,matrix(results) rownames(index)
-matrix results_within_cross_mr=results'
-#delimit ;
-
-coefplot 	(matrix(results_ols) , se(2) ms(C) msize(vtiny) mc(edkblue) ciopts(lc(edkblue) lwidth(vthin)) offset(0.15))
-			(matrix(results_mr_full_sample) , se(2) ms(S) msize(vtiny) mc(eltblue) ciopts(lc(eltblue) lwidth(vthin)) offset(0.05))
-			(matrix(results_mr_sibsample) , se(2) ms(T) msize(vtiny) mc(rose) ciopts(lc(rose) lwidth(vthin)) offset(-0.05))
-			(matrix(results_within_mr) , se(2) ms(D) msize(vtiny) mc(emerald) ciopts(lc(emerald) lwidth(vthin)) offset(-0.15))
-			(matrix(results_within_sum_same_mr) , se(2) ms(D) msize(vtiny) mc(grey) ciopts(lc(grey) lwidth(vthin)) offset(-0.25))
-			(matrix(results_within_cross_mr) , se(2) ms(D) msize(vtiny) mc(red) ciopts(lc(red) lwidth(vthin)) offset(-0.35))
-, 
-		graphregion(color(white))  plotregion(lc(white)) grid(none) xline(0) ylabel(,labsize(vsmall)) 
-		xlabel(,labsize(vsmall)) xtitle("Risk difference in outcome (95%CI)",size(vsmall))
-		xlabel(,noticks)  xtick(none) ytick(none)
-		coeflabels(6="BMI on diabetes"
-	7="BMI on high blood pressure"
-	, wrap(40))
-	legend(size(tiny) position(5) ring(0) label(2 "Ordinary least squares UKBB") label(4 "Full sample MR UKBB") label(6 "Sib sample MR UKBB") label(8 "Sib sample sib FE UKBB") label(10 "SMR - UKBB + HUNT same") label(12 "SMR - cross UKBB + HUNT cross"))
-	;	
-#delimit cr	
-graph save  "results/all_bin_outcome",replace
-graph export "results/all_bin_outcome.eps", as(pdf) replace fontface("Calibri")
-graph combine "results/all_cont_outcome" "results/all_bin_outcome", col(1) imargin(0 0 0 0) ysize(8) xsize(6.26) graphregion(color(white))
-graph save  "results/all_bin_combine",replace
-graph export "results/all_bin_combine.eps", as(pdf) replace fontface("Calibri")
-*/
-//Data for text + exact p-values
-gen lci=coef -stderr *1.96
-gen uci=coef +stderr *1.96
-
-order outcome exposure coef lci uci pval2
-compress
-save "results/final_table",replace
-
-//Save data for export to R
-keep outcome exposure N coef lci uci pval2  
-
-save "results/final_table_r",replace
-
-use "results/final_table",clear
-keep outcome exposure N coef stderr lci uci pval2  
-
-metan coef lci uci if outcome=="eduyears3" & exposure=="out_bmi", nooverall 
-
-//For text
-replace coef =coef*100 if outcome =="out_diabetes"|outcome =="out_highbloodpressure"
-replace lci =lci*100 if outcome =="out_diabetes"|outcome =="out_highbloodpressure"
-replace uci =uci*100 if outcome =="out_diabetes"|outcome =="out_highbloodpressure"
-
-//Rescale per 10cm increase in height
-replace coef =coef*10 if exposure =="out_height"
-replace lci =lci*10 if exposure =="out_height"
-replace uci =uci*10 if exposure =="out_height"
-
-
-format %9.2f coef lci uci
-format %9.1e pval2
+format 

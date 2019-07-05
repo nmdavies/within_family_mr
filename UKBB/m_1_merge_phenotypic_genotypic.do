@@ -10,16 +10,9 @@ tab _m
 //drop _m
 
 //Merge in genetic data
-joinby n_eid using "workingdata/wood_387_clean_final2",unmatched(master) _merge(_merge2)
+joinby n_eid using "workingdata/wood_386_clean_final2",unmatched(master) _merge(_merge2)
 compress
-joinby n_eid using "workingdata/locke_79_clean_final2",unmatched(master) _merge(_merge3)
-compress
-joinby n_eid using "workingdata/allele_score_ea",unmatched(master) _merge(_merge4)
-compress
-
-
-//Merge in summary genetic data
-//joinby n_eid using "workingdata/wood_387_clean_final2",unmatched(master) _merge(_merge2)
+joinby n_eid using "workingdata/locke_69_clean_final2",unmatched(master) _merge(_merge3)
 compress
 
 //Match in the prinipal components
@@ -48,7 +41,10 @@ drop if out_height==.
 drop if eduyear==.
 
 //Drop if missing genetics
-drop if wood_387_prs==.
+drop if wood_386_prs==.
+
+//Drop anyone missing education, BMI or height and recalculate number of sibs
+drop if eduyears3 ==. |out_bmi ==.|out_height ==.|out_diabetes ==.|out_highbloodpressure2==. 
 
 //Gen indicator for number of siblings
 bys famid :gen n_sibs=_N
@@ -57,7 +53,7 @@ drop _m
 
 save "workingdata/analysisdata",replace
 
-export delimited using "$path1/workingdata/analysisdata.csv", delimiter(tab) replace
+export delimited using "workingdata/analysisdata.csv", delimiter(tab) replace
 
 drop rs*
-export delimited using "$path1/workingdata/analysisdata_no_snps.csv", delimiter(tab) replace
+export delimited using "workingdata/analysisdata_no_snps.csv", delimiter(tab) replace

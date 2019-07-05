@@ -4,12 +4,12 @@
 
 cd "$path1/19_within_families_paper/"
 
-import delimited $path1/results/individual_snps_v5.txt, delimiter(space) clear
+import delimited results/individual_snps_v8_withinfo.txt, delimiter(space) clear
 keep snp effect_alleledose other_alleledose
 duplicates drop
 save "workingdata/hunt_effect_allele_other",replace
 
-import delimited $path1/results/individual_snps_v7.txt, delimiter(space) clear
+import delimited results/individual_snps_v8_withinfo.txt, delimiter(space) clear
 drop if trait=="0"
 joinby snp using "workingdata/hunt_effect_allele_other",unmatched(master)
 drop _m
@@ -36,23 +36,23 @@ compress
 save "workingdata/hunt_results",replace	
 
 //Identify the BMI and height variants
-//79 Locke SNPs
-use snp using "workingdata/locke_79_coefficients.dta",clear
-rename snp SNP
-save  "workingdata/locke_79_rsid.dta",replace
+//69 Locke SNPs
+use rsid using "workingdata/locke_69_coefficients.dta",clear
+rename rsid SNP
+save  "workingdata/locke_69_rsid.dta",replace
 
 //386 Wood SNPs
-use v2 using "workingdata/wood_387_coefficients.dta",clear
+use v2 using "workingdata/wood_386_coefficients.dta",clear
 rename v2 SNP
-save  "workingdata/wood_387_rsid.dta",replace
+save  "workingdata/wood_386_rsid.dta",replace
 
 //Create indicator for Locke and Wood SNPs
 use "workingdata/hunt_results", clear
-joinby SNP using "workingdata/locke_79_rsid.dta",unmatched(master)
+joinby SNP using "workingdata/locke_69_rsid.dta",unmatched(master)
 
 gen locke=(_m==3)
 drop _m
-joinby SNP using "workingdata/wood_387_rsid.dta",unmatched(master)
+joinby SNP using "workingdata/wood_386_rsid.dta",unmatched(master)
 gen wood=(_m==3)
 drop _m
 
@@ -62,8 +62,9 @@ save "workingdata/hunt_results",replace
 
 //Clean UKBB data to the same format:
 use "workingdata/indi_snp_analysis_clean.dta",clear
+duplicates drop
 replace trait="eduyears2" if trait=="eduyears3"
-keep if sample_size>16000
+keep if method=="Within FE"
 
 levels trait 
 foreach trait in `r(levels)'{
@@ -89,7 +90,7 @@ save "workingdata/ukbb_results",replace
 joinby SNP using "workingdata/hunt_results",unmatched(master) _merge(SSS)
 
 //Harmonize to the UKBB effect alleles
-forvalues i=1(1)464{
+forvalues i=1(1)455{
 	local ukbb_effect_allele=UKBB_effect_allele[`i']
 	local ukbb_other_allele=UKBB_other_allele[`i']
 	local hunt_effect_allele=HUNT_effect_allele[`i']
@@ -213,7 +214,14 @@ save "workingdata/metan",replace
 use "workingdata/indi_snp_analysis_clean.dta",clear
 replace trait="eduyears2" if trait=="eduyears3"
 
-gen estimator="within_family" if sample_size>20000
-replace estimator="unrelateds" if sample_size<20000
-export delimited using "$path1/results/snp_summary_data_nmd_190319.csv", replace
+export delimited using "results/snp_summary_data_nmd_190319.csv", replace
+
+//Meta-analyse the IPD results
+
+import delimited results/individual_snps_v7.txt, delimiter(space) clear
+drop if trait=="0"
+joinby snp using "workingdata/hunt_effect_allele_other",unmatched(master)
+drop _m
+
+
 

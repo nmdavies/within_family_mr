@@ -5,11 +5,11 @@
 use "workingdata/analysisdata" if n_sibs !=1 & n_sibs <8, clear
 
 //Create results file
-xtreg out_height rs1000940_G_A pc1-pc20 cov_male cov_age ,ro i(famid ) fe
+xtreg out_height rs1000940_G_A pc1-pc20 cov_male cov_age ,ro i(famid ) fe  cluster(famid)
 regsave rs1000940_G_A using "results/indi_snp_analysis",replace detail(all) pval ci
 	
 //Generate indicators for samples for each outcome
-foreach outcome in out_bmi out_height out_diabetes out_highbloodpressure eduyears3{
+foreach outcome in out_bmi out_height out_diabetes out_highbloodpressure2 eduyears3{
 	preserve
 	
 	//Drop families with only one person after accounting for missing outcomes
@@ -19,9 +19,9 @@ foreach outcome in out_bmi out_height out_diabetes out_highbloodpressure eduyear
 
 	ds rs*
 	foreach j in `r(varlist)'{
-		xtreg `outcome' `j' pc1-pc20 cov_male cov_age ,ro i(famid ) fe
+		xtreg `outcome' `j' pc1-pc20 cov_male cov_age ,ro i(famid ) fe cluster(famid)
 		regsave `j' using "results/indi_snp_analysis",append detail(all) pval ci
-		reg `outcome' `j' pc1-pc20 cov_male cov_age if within_fam_id==1,ro 
+		reg `outcome' `j' pc1-pc20 cov_male cov_age ,ro  cluster(famid)
 		regsave `j' using "results/indi_snp_analysis",append detail(all) pval ci
 		}
 	restore
@@ -59,8 +59,8 @@ rename pval pvalue
 
 rename N sample_size
 
-order trait SNP effect_allele other_allele beta se pvalue sample_size
-keep trait SNP effect_allele other_allele beta se pvalue sample_size
+order trait SNP effect_allele other_allele beta se pvalue sample_size method
+keep trait SNP effect_allele other_allele beta se pvalue sample_size method
 compress
 
 joinby SNP using "workingdata/EAF",unmatched(master)
